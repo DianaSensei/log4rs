@@ -211,7 +211,7 @@ fn rotate(
     let dst_0 = pattern.replace("{yyyy-mm}", &year_month);
     let dst_0 = dst_0.replace("{yyyy-mm-dd}", &year_month_day);
 
-    let mut dst = dst_0.clone();
+    let mut dst = dst_0.replace("{}", &base.to_string());
 
     if let Some(parent) = Path::new(&dst_0).parent() {
         fs::create_dir_all(parent)?;
