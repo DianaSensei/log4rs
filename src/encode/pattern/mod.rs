@@ -566,7 +566,20 @@ impl FormattedChunk {
             }
             FormattedChunk::Level => write!(w, "{}", record.level()),
             FormattedChunk::Message => w.write_fmt(*record.args()),
-            FormattedChunk::Module => w.write_all(record.module_path().unwrap_or("???").as_bytes()),
+            FormattedChunk::Module => {
+                let module_split = record.module_path().unwrap().split("::");
+                let count = module_split.clone().count();
+                let mut module_short = String::new();
+                for (pos, module) in module_split.enumerate() {
+                    if pos == count - 1 {
+                        module_short.push_str(module);
+                    } else {
+                        module_short.push(module.chars().next().unwrap());
+                        module_short.push_str("::");
+                    }
+                }
+                w.write_all(module_short.as_bytes())
+            },
             FormattedChunk::File => w.write_all(record.file().unwrap_or("???").as_bytes()),
             FormattedChunk::Line => match record.line() {
                 Some(line) => write!(w, "{}", line),

@@ -100,7 +100,7 @@ impl FixedWindowRoller {
 
 impl Roll for FixedWindowRoller {
     #[cfg(not(feature = "background_rotation"))]
-    fn roll(&self, file: &Path) -> anyhow::Result<()> {
+    fn roll(&self, file: &Path, roll_type: i16) -> anyhow::Result<()> {
         if self.count == 0 {
             return fs::remove_file(file).map_err(Into::into);
         }
@@ -109,7 +109,7 @@ impl Roll for FixedWindowRoller {
             self.pattern.clone(),
             self.compression,
             self.base,
-            self.count,
+            roll_type,
             file.to_path_buf(),
         )?;
 
@@ -117,7 +117,7 @@ impl Roll for FixedWindowRoller {
     }
 
     #[cfg(feature = "background_rotation")]
-    fn roll(&self, file: &Path) -> anyhow::Result<()> {
+    fn roll(&self, file: &Path, roll_type: i16) -> anyhow::Result<()> {
         if self.count == 0 {
             return fs::remove_file(file).map_err(Into::into);
         }
@@ -145,7 +145,7 @@ impl Roll for FixedWindowRoller {
             let &(ref lock, ref cvar) = &*cond_pair;
             let mut ready = lock.lock();
 
-            if let Err(e) = rotate(pattern, compression, base, count, temp) {
+            if let Err(e) = rotate(pattern, compression, base, roll_type, temp) {
                 use std::io::Write;
                 let _ = writeln!(io::stderr(), "log4rs, error rotating: {}", e);
             }
@@ -195,38 +195,35 @@ where
 fn rotate(
     pattern: String,
     compression: Compression,
-    base: u32,
-    count: u32,
+    mut base: u32,
+    rotate_type: i16,
     file: PathBuf,
 ) -> io::Result<()> {
-    let dst_0 = pattern.replace("{}", &base.to_string());
+    let day = if rotate_type == 1 {
+        chrono::Utc::today() + chrono::Duration::days(-1)
+    } else {
+        chrono::Utc::today()
+    };
+
+    let year_month = day.format("%Y-%m").to_string();
+    let year_month_day = day.format("%Y-%m-%d").to_string();
+
+    let dst_0 = pattern.replace("{yyyy-mm}", &year_month);
+    let dst_0 = dst_0.replace("{yyyy-mm-dd}", &year_month_day);
+
+    let mut dst = dst_0.clone();
 
     if let Some(parent) = Path::new(&dst_0).parent() {
         fs::create_dir_all(parent)?;
     }
 
-    // In the common case, all of the archived files will be in the same
-    // directory, so avoid extra filesystem calls in that case.
-    let parent_varies = match (Path::new(&dst_0).parent(), Path::new(&pattern).parent()) {
-        (Some(a), Some(b)) => a != b,
-        _ => false, // Only case that can actually happen is (None, None)
-    };
-
-    for i in (base..base + count - 1).rev() {
-        let src = pattern.replace("{}", &i.to_string());
-        let dst = pattern.replace("{}", &(i + 1).to_string());
-
-        if parent_varies {
-            if let Some(parent) = Path::new(&dst).parent() {
-                fs::create_dir_all(parent)?;
-            }
-        }
-
-        move_file(&src, &dst)?;
+    while Path::new(&dst).exists() {
+        base += 1;
+        dst = dst_0.replace("{}", &base.to_string());
     }
 
-    compression.compress(&file, &dst_0).map_err(|e| {
-        println!("err compressing: {:?}, dst: {:?}", file, dst_0);
+    compression.compress(&file, &dst).map_err(|e| {
+        println!("err compressing: {:?}, dst: {:?}", file, dst);
         e
     })?;
     Ok(())
@@ -347,167 +344,6 @@ mod test {
     fn wait_for_roller(_roller: &FixedWindowRoller) {}
 
     #[test]
-    fn rotation() {
-        let dir = tempfile::tempdir().unwrap();
-
-        let base = dir.path().to_str().unwrap();
-        let roller = FixedWindowRoller::builder()
-            .build(&format!("{}/foo.log.{{}}", base), 2)
-            .unwrap();
-
-        let file = dir.path().join("foo.log");
-        File::create(&file).unwrap().write_all(b"file1").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-        assert!(!file.exists());
-        let mut contents = vec![];
-        File::open(dir.path().join("foo.log.0"))
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, b"file1");
-
-        File::create(&file).unwrap().write_all(b"file2").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-        assert!(!file.exists());
-        contents.clear();
-        File::open(dir.path().join("foo.log.1"))
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, b"file1");
-        contents.clear();
-        File::open(dir.path().join("foo.log.0"))
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, b"file2");
-
-        File::create(&file).unwrap().write_all(b"file3").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-        assert!(!file.exists());
-        contents.clear();
-        assert!(!dir.path().join("foo.log.2").exists());
-        File::open(dir.path().join("foo.log.1"))
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, b"file2");
-        contents.clear();
-        File::open(dir.path().join("foo.log.0"))
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, b"file3");
-    }
-
-    #[test]
-    fn rotation_no_trivial_base() {
-        let dir = tempfile::tempdir().unwrap();
-        let base = 3;
-        let fname = "foo.log";
-        let fcontent = b"something";
-        let expected_fist_roll = format!("{}.{}", fname, base);
-
-        let base_dir = dir.path().to_str().unwrap();
-        let roller = FixedWindowRoller::builder()
-            .base(base)
-            .build(&format!("{}/{}.{{}}", base_dir, fname), 2)
-            .unwrap();
-
-        let file = dir.path().join(fname);
-        File::create(&file).unwrap().write_all(fcontent).unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-        assert!(!file.exists());
-
-        let mut contents = vec![];
-
-        let first_roll = dir.path().join(&expected_fist_roll);
-
-        assert!(first_roll.as_path().exists());
-
-        File::open(first_roll)
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, fcontent);
-
-        // Sanity check general behaviour
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-        assert!(!file.exists());
-        contents.clear();
-        File::open(dir.path().join(&format!("{}.{}", fname, base + 1)))
-            .unwrap()
-            .read_to_end(&mut contents)
-            .unwrap();
-        assert_eq!(contents, b"something");
-    }
-
-    #[test]
-    fn create_archive_unvaried() {
-        let dir = tempfile::tempdir().unwrap();
-
-        let base = dir.path().join("log").join("archive");
-        let pattern = base.join("foo.{}.log");
-        let roller = FixedWindowRoller::builder()
-            .build(pattern.to_str().unwrap(), 2)
-            .unwrap();
-
-        let file = dir.path().join("foo.log");
-        File::create(&file).unwrap().write_all(b"file").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-
-        assert!(base.join("foo.0.log").exists());
-
-        let file = dir.path().join("foo.log");
-        File::create(&file).unwrap().write_all(b"file2").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-
-        assert!(base.join("foo.0.log").exists());
-        assert!(base.join("foo.1.log").exists());
-    }
-
-    #[test]
-    fn create_archive_varied() {
-        let dir = tempfile::tempdir().unwrap();
-
-        let base = dir.path().join("log").join("archive");
-        let pattern = base.join("{}").join("foo.log");
-        let roller = FixedWindowRoller::builder()
-            .build(pattern.to_str().unwrap(), 2)
-            .unwrap();
-
-        let file = dir.path().join("foo.log");
-        File::create(&file).unwrap().write_all(b"file").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-
-        assert!(base.join("0").join("foo.log").exists());
-
-        let file = dir.path().join("foo.log");
-        File::create(&file).unwrap().write_all(b"file2").unwrap();
-
-        roller.roll(&file).unwrap();
-        wait_for_roller(&roller);
-
-        assert!(base.join("0").join("foo.log").exists());
-        assert!(base.join("1").join("foo.log").exists());
-    }
-
-    #[test]
     #[cfg_attr(feature = "gzip", ignore)]
     fn unsupported_gzip() {
         let dir = tempfile::tempdir().unwrap();
@@ -537,7 +373,7 @@ mod test {
         let file = dir.path().join("foo.log");
         File::create(&file).unwrap().write_all(&contents).unwrap();
 
-        roller.roll(&file).unwrap();
+        roller.roll(&file, 1).unwrap();
         wait_for_roller(&roller);
 
         assert!(Command::new("gunzip")

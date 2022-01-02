@@ -6,6 +6,7 @@
 use serde::de;
 #[cfg(feature = "config_parsing")]
 use std::fmt;
+use chrono::Datelike;
 
 use crate::append::rolling_file::{policy::compound::trigger::Trigger, LogFile};
 
@@ -23,28 +24,24 @@ pub struct SizeTriggerConfig {
 
 #[cfg(feature = "config_parsing")]
 fn deserialize_limit<'de, D>(d: D) -> Result<u64, D::Error>
-where
-    D: de::Deserializer<'de>,
+                             where
+                                 D: de::Deserializer<'de>,
 {
     struct V;
-
     impl<'de2> de::Visitor<'de2> for V {
         type Value = u64;
-
         fn expecting(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
             fmt.write_str("a size")
         }
-
         fn visit_u64<E>(self, v: u64) -> Result<u64, E>
-        where
-            E: de::Error,
+                        where
+                            E: de::Error,
         {
             Ok(v)
         }
-
         fn visit_i64<E>(self, v: i64) -> Result<u64, E>
-        where
-            E: de::Error,
+                        where
+                            E: de::Error,
         {
             if v < 0 {
                 return Err(E::invalid_value(
@@ -52,29 +49,24 @@ where
                     &"a non-negative number",
                 ));
             }
-
             Ok(v as u64)
         }
-
         fn visit_str<E>(self, v: &str) -> Result<u64, E>
-        where
-            E: de::Error,
+                        where
+                            E: de::Error,
         {
             let (number, unit) = match v.find(|c: char| !c.is_digit(10)) {
                 Some(n) => (v[..n].trim(), Some(v[n..].trim())),
                 None => (v.trim(), None),
             };
-
             let number = match number.parse::<u64>() {
                 Ok(n) => n,
                 Err(_) => return Err(E::invalid_value(de::Unexpected::Str(number), &"a number")),
             };
-
             let unit = match unit {
                 Some(u) => u,
                 None => return Ok(number),
             };
-
             let number = if unit.eq_ignore_ascii_case("b") {
                 Some(number)
             } else if unit.eq_ignore_ascii_case("kb") || unit.eq_ignore_ascii_case("kib") {
@@ -88,14 +80,12 @@ where
             } else {
                 return Err(E::invalid_value(de::Unexpected::Str(unit), &"a valid unit"));
             };
-
             match number {
                 Some(n) => Ok(n),
                 None => Err(E::invalid_value(de::Unexpected::Str(v), &"a byte size")),
             }
         }
     }
-
     d.deserialize_any(V)
 }
 
@@ -103,19 +93,29 @@ where
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, Default)]
 pub struct SizeTrigger {
     limit: u64,
+    ordinal: u32,
+    year: i32
 }
 
 impl SizeTrigger {
     /// Returns a new trigger which rolls the log once it has passed the
     /// specified size in bytes.
     pub fn new(limit: u64) -> SizeTrigger {
-        SizeTrigger { limit }
+        let now = chrono::Utc::now();
+        SizeTrigger { limit, ordinal: now.ordinal(), year: now.year() }
     }
 }
 
 impl Trigger for SizeTrigger {
-    fn trigger(&self, file: &LogFile) -> anyhow::Result<bool> {
-        Ok(file.len_estimate() > self.limit)
+    fn trigger(&self, file: &LogFile) -> anyhow::Result<(bool, i16)> {
+        let now = chrono::Utc::now();
+        if now.ordinal() > self.ordinal || now.year() > self.year {
+            return Ok((true, 1));
+        }
+        if file.len_estimate() > self.limit {
+            return Ok((true, 2));
+        }
+        return Ok((false, -1));
     }
 }
 

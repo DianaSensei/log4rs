@@ -101,9 +101,10 @@ impl CompoundPolicy {
 
 impl Policy for CompoundPolicy {
     fn process(&self, log: &mut LogFile) -> anyhow::Result<()> {
-        if self.trigger.trigger(log)? {
+        let (is_trigger, trigger_type) = self.trigger.trigger(log)?;
+        if is_trigger {
             log.roll();
-            self.roller.roll(log.path())?;
+            self.roller.roll(log.path(), trigger_type)?;
         }
         Ok(())
     }
