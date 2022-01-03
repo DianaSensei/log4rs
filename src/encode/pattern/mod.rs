@@ -446,11 +446,19 @@ impl<'a> From<Piece<'a>> for Chunk {
                     }
                 }
                 "s" | "style" => {
-                    if formatter.args.len() != 2 {
-                        return Chunk::Error("expected at most two arguments".to_owned());
+                    if formatter.args.len() != 3 {
+                        return Chunk::Error("expected 3 arguments".to_owned());
                     }
 
-                    let color = match formatter.args.get(0) {
+                    let chunks = formatter
+                        .args.get(0)
+                        .unwrap()
+                        .to_owned()
+                        .into_iter()
+                        .map(From::from)
+                        .collect();
+
+                    let color = match formatter.args.get(1) {
                         Some(arg) => {
                             if let Some(arg) = arg.get(0) {
                                 match arg {
@@ -465,7 +473,7 @@ impl<'a> From<Piece<'a>> for Chunk {
                         None => return Chunk::Error("missing color".to_owned()),
                     };
 
-                    let intense = match formatter.args.get(1) {
+                    let intense = match formatter.args.get(2) {
                         Some(arg) => {
                             if let Some(arg) = arg.get(0) {
                                 match arg {
@@ -479,14 +487,6 @@ impl<'a> From<Piece<'a>> for Chunk {
                         }
                         None => false,
                     };
-
-                    let chunks = formatter
-                        .args
-                        .pop()
-                        .unwrap()
-                        .into_iter()
-                        .map(From::from)
-                        .collect();
 
                     Chunk::Formatted {
                         chunk: FormattedChunk::Style(chunks, (color.into(), intense.into())),
