@@ -200,9 +200,9 @@ fn rotate(
     file: PathBuf,
 ) -> io::Result<()> {
     let day = if rotate_type == 1 {
-        chrono::Utc::today() + chrono::Duration::days(-1)
+        chrono::Local::today() + chrono::Duration::days(-1)
     } else {
-        chrono::Utc::today()
+        chrono::Local::today()
     };
 
     let year_month = day.format("%Y-%m").to_string();
