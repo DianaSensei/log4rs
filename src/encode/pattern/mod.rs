@@ -446,11 +446,10 @@ impl<'a> From<Piece<'a>> for Chunk {
                     }
                 }
                 "s" | "style" => {
-                    println!("style");
                     if formatter.args.len() != 3 {
                         return Chunk::Error("expected 3 arguments".to_owned());
                     }
-                    println!("style: pass");
+
                     let chunks = formatter
                         .args.get(0)
                         .unwrap()
@@ -459,7 +458,6 @@ impl<'a> From<Piece<'a>> for Chunk {
                         .map(From::from)
                         .collect();
 
-                    println!("chunks: {:?}", chunks);
                     let color = match formatter.args.get(1) {
                         Some(arg) => {
                             if let Some(arg) = arg.get(0) {
@@ -474,7 +472,7 @@ impl<'a> From<Piece<'a>> for Chunk {
                         }
                         None => return Chunk::Error("missing color".to_owned()),
                     };
-                    println!("color: {:?}", color);
+
                     let intense = match formatter.args.get(2) {
                         Some(arg) => {
                             if let Some(arg) = arg.get(0) {
@@ -489,7 +487,7 @@ impl<'a> From<Piece<'a>> for Chunk {
                         }
                         None => false,
                     };
-                    println!("intense: {:?}", intense);
+
                     Chunk::Formatted {
                         chunk: FormattedChunk::Style(chunks, (color.into(), intense.into())),
                         params: parameters,
@@ -674,13 +672,12 @@ impl FormattedChunk {
             }
             FormattedChunk::Style(ref chunks, (ref c, intense)) => {
                 use std::str::FromStr;
-                println!("set style");
+
                 w.set_style(Style::new().text(Color::from_str(c.as_str()).unwrap()).intense(intense))?;
                 for chunk in chunks {
                     chunk.encode(w, record)?;
                 }
                 w.set_style(&Style::new())?;
-                println!("remove style");
                 Ok(())
             }
         }
