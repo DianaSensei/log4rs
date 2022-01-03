@@ -101,14 +101,14 @@ impl SizeTrigger {
     /// Returns a new trigger which rolls the log once it has passed the
     /// specified size in bytes.
     pub fn new(limit: u64) -> SizeTrigger {
-        let now = chrono::Utc::now();
+        let now = chrono::Local::now();
         SizeTrigger { limit, ordinal: now.ordinal(), year: now.year() }
     }
 }
 
 impl Trigger for SizeTrigger {
     fn trigger(&self, file: &LogFile) -> anyhow::Result<(bool, i16)> {
-        let now = chrono::Utc::now();
+        let now = chrono::Local::now();
         if now.ordinal() > self.ordinal || now.year() > self.year {
             return Ok((true, 1));
         }
