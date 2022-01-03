@@ -124,11 +124,7 @@ use derivative::Derivative;
 use log::{Level, Record};
 use std::{default::Default, io, process, thread};
 
-use crate::encode::{
-    self,
-    pattern::parser::{Alignment, Parameters, Parser, Piece},
-    Color, Encode, Style, NEWLINE,
-};
+use crate::encode::{self, pattern::parser::{Alignment, Parameters, Parser, Piece}, Color, Encode, Style, NEWLINE};
 
 #[cfg(feature = "config_parsing")]
 use crate::config::{Deserialize, Deserializers};
@@ -449,6 +445,54 @@ impl<'a> From<Piece<'a>> for Chunk {
                         params: parameters,
                     }
                 }
+                "s" | "style" => {
+                    if formatter.args.len() != 2 {
+                        return Chunk::Error("expected at most two arguments".to_owned());
+                    }
+
+                    let color = match formatter.args.get(0) {
+                        Some(arg) => {
+                            if let Some(arg) = arg.get(0) {
+                                match arg {
+                                    Piece::Text(key) => key.to_owned(),
+                                    Piece::Error(ref e) => return Chunk::Error(e.clone()),
+                                    _ => return Chunk::Error("invalid color".to_owned()),
+                                }
+                            } else {
+                                return Chunk::Error("invalid color".to_owned());
+                            }
+                        }
+                        None => return Chunk::Error("missing color".to_owned()),
+                    };
+
+                    let intense = match formatter.args.get(1) {
+                        Some(arg) => {
+                            if let Some(arg) = arg.get(0) {
+                                match arg {
+                                    Piece::Text(key) => (*key == "1") as bool,
+                                    Piece::Error(ref e) => return Chunk::Error(e.clone()),
+                                    _ => return Chunk::Error("invalid intense".to_owned()),
+                                }
+                            } else {
+                                return Chunk::Error("invalid intense".to_owned());
+                            }
+                        }
+                        None => false,
+                    };
+
+                    let chunks = formatter
+                        .args
+                        .pop()
+                        .unwrap()
+                        .into_iter()
+                        .map(From::from)
+                        .collect();
+
+                    Chunk::Formatted {
+                        chunk: FormattedChunk::Style(chunks, (color.into(), intense.into())),
+                        params: parameters,
+                    }
+                }
                 "l" | "level" => no_args(&formatter.args, parameters, FormattedChunk::Level),
                 "m" | "message" => no_args(&formatter.args, parameters, FormattedChunk::Message),
                 "M" | "module" => no_args(&formatter.args, parameters, FormattedChunk::Module),
@@ -554,6 +598,7 @@ enum FormattedChunk {
     Newline,
     Align(Vec<Chunk>),
     Highlight(Vec<Chunk>),
+    Style(Vec<Chunk>, (String, bool)),
     Mdc(String, String),
 }
 
@@ -624,6 +669,16 @@ impl FormattedChunk {
             }
             FormattedChunk::Mdc(ref key, ref default) => {
                 log_mdc::get(key, |v| write!(w, "{}", v.unwrap_or(default)))
+            }
+            FormattedChunk::Style(ref chunks, (ref c, intense)) => {
+                use std::str::FromStr;
+
+                w.set_style(Style::new().text(Color::from_str(c.as_str()).unwrap()).intense(intense))?;
+                for chunk in chunks {
+                    chunk.encode(w, record)?;
+                }
+                w.set_style(&Style::new())?;
+                Ok(())
             }
         }
     }

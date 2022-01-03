@@ -78,16 +78,31 @@ impl<'de> de::Deserialize<'de> for EncoderConfig {
 
 /// A text or background color.
 #[allow(missing_docs)]
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug, EnumString)]
 pub enum Color {
+    #[strum(ascii_case_insensitive)]
     Black,
+
+    #[strum(ascii_case_insensitive)]
     Red,
+
+    #[strum(ascii_case_insensitive)]
     Green,
+
+    #[strum(ascii_case_insensitive)]
     Yellow,
+
+    #[strum(ascii_case_insensitive)]
     Blue,
+
+    #[strum(ascii_case_insensitive)]
     Magenta,
+
+    #[strum(ascii_case_insensitive)]
     Cyan,
-    White,
+
+    #[strum(ascii_case_insensitive)]
+    White
 }
 
 /// The style applied to text output.

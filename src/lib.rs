@@ -200,7 +200,8 @@ pub mod encode;
 pub mod filter;
 #[cfg(feature = "console_writer")]
 mod priv_io;
-
+#[macro_use]
+extern crate strum;
 pub use config::{init_config, Config};
 
 #[cfg(feature = "config_parsing")]
